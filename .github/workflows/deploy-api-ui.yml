@@ -1,0 +1,43 @@
+name: Deploy API-UI (CPU)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'services/api/**'
+      - 'deploy/dockerfiles/Dockerfile.ui'
+      - 'requirements.txt'
+      - '.github/workflows/deploy-api-ui.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & Push image
+        run: |
+          IMAGE="${{ vars.AR_REPO }}/api-ui:${{ github.sha }}"
+          gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+          docker build -t "$IMAGE" -f deploy/dockerfiles/Dockerfile.ui .
+          docker push "$IMAGE"
+
+      - name: Deploy to Cloud Run (CPU)
+        run: |
+          gcloud run deploy api-ui \
+            --image "${{ vars.AR_REPO }}/api-ui:${{ github.sha }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances 0 --max-instances 1
