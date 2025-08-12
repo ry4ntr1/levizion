@@ -3,11 +3,7 @@ name: Deploy API-UI (CPU)
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'services/api/**'
-      - 'deploy/dockerfiles/Dockerfile.ui'
-      - 'requirements.txt'
-      - '.github/workflows/deploy-api-ui.yml'
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -26,6 +22,9 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
+      - name: Set gcloud project
+        run: gcloud config set project "${{ vars.GCP_PROJECT_ID }}"
+
       - name: Build & Push image
         run: |
           IMAGE="${{ vars.AR_REPO }}/api-ui:${{ github.sha }}"
@@ -36,6 +35,7 @@ jobs:
       - name: Deploy to Cloud Run (CPU)
         run: |
           gcloud run deploy api-ui \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
             --image "${{ vars.AR_REPO }}/api-ui:${{ github.sha }}" \
             --region "${{ vars.GCP_REGION }}" \
             --platform managed \
