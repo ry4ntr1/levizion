@@ -1,0 +1,47 @@
+name: Deploy Inference (GPU L4)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy-gpu:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set gcloud project
+        run: gcloud config set project "${{ vars.GCP_PROJECT_ID }}"
+
+      - name: Build & Push GPU image
+        run: |
+          IMAGE="${{ vars.AR_REPO }}/infer-gpu:${{ github.sha }}"
+          gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+          docker build -t "$IMAGE" -f deploy/dockerfiles/Dockerfile.gpu .
+          docker push "$IMAGE"
+
+      - name: Deploy Cloud Run (GPU L4)
+        run: |
+          gcloud run deploy infer-gpu \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --image "${{ vars.AR_REPO }}/infer-gpu:${{ github.sha }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --platform managed \
+            --allow-unauthenticated \
+            --gpu 1 --gpu-type nvidia-l4 \
+            --cpu 4 --memory 16Gi --no-cpu-throttling \
+            --concurrency 1 \
+            --service-account "run-infer@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --min-instances 0 --max-instances 1
