@@ -1,0 +1,104 @@
+name: Train Detector (Cloud Batch GPU)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_gcs_uri:
+        description: "gs://.../datasets/<name>"
+        required: true
+      out_gcs_uri:
+        description: "gs://.../models/<run_name>"
+        required: true
+      epochs:
+        description: "Epochs"
+        required: false
+        default: "30"
+      imgsz:
+        description: "Image size"
+        required: false
+        default: "1280"
+      base_model:
+        description: "Ultralytics base (e.g., yolov8s.pt)"
+        required: false
+        default: "yolov8s.pt"
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set project
+        run: gcloud config set project "${{ vars.GCP_PROJECT_ID }}"
+
+      - name: Build & Push training image
+        run: |
+          IMAGE="${{ vars.AR_REPO }}/train:${{ github.sha }}"
+          gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+          docker build -t "$IMAGE" -f deploy/dockerfiles/Dockerfile.train .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Submit Cloud Batch job (GPU L4)
+        run: |
+          JOB="train-detector-${{ github.run_id }}"
+          DATASET="${{ github.event.inputs.dataset_gcs_uri }}"
+          OUT="${{ github.event.inputs.out_gcs_uri }}"
+          EPOCHS="${{ github.event.inputs.epochs }}"
+          IMGSZ="${{ github.event.inputs.imgsz }}"
+          BASE="${{ github.event.inputs.base_model }}"
+
+          cat > job.json <<EOF
+          {
+            "taskGroups": [{
+              "taskCount": 1,
+              "taskSpec": {
+                "computeResource": { "cpuMilli": 8000, "memoryMib": 32768 },
+                "runnables": [{
+                  "container": {
+                    "imageUri": "${IMAGE}",
+                    "commands": ["python","pipeline/train_detector.py",
+                      "--data_uri","${DATASET}",
+                      "--out_uri","${OUT}",
+                      "--epochs","${EPOCHS}",
+                      "--imgsz","${IMGSZ}",
+                      "--base","${BASE}"
+                    ]
+                  }
+                }]
+              }
+            }],
+            "allocationPolicy": {
+              "instances": [{
+                "policy": {
+                  "machineType": "g2-standard-8",
+                  "accelerators": [{ "type": "nvidia-l4", "count": 1 }]
+                }
+              }],
+              "installGpuDrivers": true
+            },
+            "logsPolicy": { "destination": "CLOUD_LOGGING" }
+          }
+          EOF
+
+          gcloud batch jobs submit "$JOB" \
+            --location "${{ vars.GCP_REGION }}" \
+            --config job.json
+
+          echo "JOB=$JOB" >> $GITHUB_ENV
+
+      - name: Show job link
+        run: |
+          echo "Job: $JOB"
+          echo "Console: https://console.cloud.google.com/batch/jobs/$JOB/details?project=${{ vars.GCP_PROJECT_ID }}&location=${{ vars.GCP_REGION }}"

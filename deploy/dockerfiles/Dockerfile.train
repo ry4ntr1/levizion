@@ -1,0 +1,8 @@
+FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential git curl && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir ultralytics google-cloud-storage pyyaml opencv-python-headless
+COPY . .
+CMD ["python","pipeline/train_detector.py","--help"]

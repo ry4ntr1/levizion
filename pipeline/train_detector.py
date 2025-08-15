@@ -1,0 +1,99 @@
+import argparse, os, sys, json, pathlib, time, shutil
+from google.cloud import storage
+from ultralytics import YOLO
+
+def parse_gcs(uri):
+    assert uri.startswith("gs://"), f"Not a GCS URI: {uri}"
+    parts = uri[5:].split("/", 1)
+    bucket = parts[0]
+    prefix = parts[1] if len(parts) > 1 else ""
+    return bucket, prefix
+
+def download_gcs_dir(gcs_uri, dest_dir):
+    bucket_name, prefix = parse_gcs(gcs_uri)
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blobs = client.list_blobs(bucket, prefix=prefix)
+    os.makedirs(dest_dir, exist_ok=True)
+    n = 0
+    for b in blobs:
+        rel = b.name[len(prefix):].lstrip("/")
+        if rel.endswith("/") or not rel:
+            continue
+        local_path = os.path.join(dest_dir, rel)
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        b.download_to_filename(local_path)
+        n += 1
+    return n
+
+def upload_dir_to_gcs(local_dir, gcs_uri):
+    bucket_name, prefix = parse_gcs(gcs_uri)
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    for root, _, files in os.walk(local_dir):
+        for f in files:
+            local_path = os.path.join(root, f)
+            rel = os.path.relpath(local_path, local_dir)
+            blob = bucket.blob(os.path.join(prefix, rel).replace("\\", "/"))
+            blob.upload_from_filename(local_path)
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data_uri", required=True, help="gs://.../datasets/<name>")
+    ap.add_argument("--out_uri",  required=True, help="gs://.../models/<run_name>")
+    ap.add_argument("--base", default="yolov8s.pt")
+    ap.add_argument("--imgsz", type=int, default=1280)
+    ap.add_argument("--epochs", type=int, default=30)
+    args = ap.parse_args()
+
+    work = pathlib.Path("/workspace")
+    data_dir = work / "dataset"
+    out_dir  = work / "outputs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Downloading dataset from {args.data_uri} ...", flush=True)
+    n = download_gcs_dir(args.data_uri, str(data_dir))
+    print(f"Downloaded {n} files to {data_dir}", flush=True)
+
+    data_yaml = str(data_dir / "data.yaml")
+    if not os.path.exists(data_yaml):
+        print(f"ERROR: {data_yaml} not found", file=sys.stderr); sys.exit(2)
+
+    print(f"Starting training: base={args.base}, imgsz={args.imgsz}, epochs={args.epochs}", flush=True)
+    model = YOLO(args.base)
+    results = model.train(
+        data=data_yaml,
+        imgsz=args.imgsz,
+        epochs=args.epochs,
+        device=0,              # use GPU
+        project=str(out_dir),  # runs saved under /workspace/outputs
+        name="detector"
+    )
+
+    # Locate best weights and export ONNX
+    run_dir = pathlib.Path(results.save_dir)
+    best_pt = run_dir / "weights" / "best.pt"
+    if not best_pt.exists():
+        print("ERROR: best.pt not found", file=sys.stderr); sys.exit(3)
+
+    print("Exporting ONNX ...", flush=True)
+    YOLO(str(best_pt)).export(format="onnx", opset=12, imgsz=args.imgsz)
+
+    # Collect artifacts
+    export_onnx = next(run_dir.glob("weights/*.onnx"), None)
+    summary = {
+        "run_dir": str(run_dir),
+        "best_pt": str(best_pt),
+        "best_onnx": str(export_onnx) if export_onnx else None,
+        "metrics": getattr(results, "results_dict", {})
+    }
+    with open(run_dir / "summary.json", "w") as f:
+        json.dump(summary, f, indent=2)
+
+    # Upload to GCS
+    print(f"Uploading artifacts to {args.out_uri} ...", flush=True)
+    upload_dir_to_gcs(str(run_dir), args.out_uri)
+    print("Done.", flush=True)
+
+if __name__ == "__main__":
+    main()
