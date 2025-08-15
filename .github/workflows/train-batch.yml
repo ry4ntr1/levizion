@@ -64,6 +64,7 @@ jobs:
             "taskGroups": [{
               "taskCount": 1,
               "taskSpec": {
+              "serviceAccount": { "email": "batch-runner@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" },
                 "computeResource": { "cpuMilli": 8000, "memoryMib": 32768 },
                 "runnables": [{
                   "container": {
