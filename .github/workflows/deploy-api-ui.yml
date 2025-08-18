@@ -25,17 +25,24 @@ jobs:
       - name: Set gcloud project
         run: gcloud config set project "${{ vars.GCP_PROJECT_ID }}"
 
-      - name: Build & Push image
-        run: |
-          IMAGE="${{ vars.AR_REPO }}/api-ui:${{ github.sha }}"
-          gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
-          docker build -t "$IMAGE" -f deploy/dockerfiles/Dockerfile.ui .
-          docker push "$IMAGE"
+      - name: Configure Artifact Registry Docker auth
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push (AMD64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/dockerfiles/Dockerfile.ui
+          push: true
+          platforms: linux/amd64
+          tags: ${{ vars.AR_REPO }}/api-ui:${{ github.sha }}
 
       - name: Deploy to Cloud Run (CPU)
         run: |
           gcloud run deploy api-ui \
-            --project "${{ vars.GCP_PROJECT_ID }}" \
             --image "${{ vars.AR_REPO }}/api-ui:${{ github.sha }}" \
             --region "${{ vars.GCP_REGION }}" \
             --platform managed \

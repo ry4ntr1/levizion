@@ -1,0 +1,93 @@
+name: Train Detector (Cloud Run Job GPU)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_gcs_uri:
+        description: "gs://.../datasets/<name>"
+        required: true
+      out_gcs_uri:
+        description: "gs://.../models/<run_name>"
+        required: true
+      epochs:
+        description: "Epochs"
+        required: false
+        default: "30"
+      imgsz:
+        description: "Image size"
+        required: false
+        default: "1280"
+      base_model:
+        description: "Ultralytics base (e.g., yolov8s.pt)"
+        required: false
+        default: "yolov8s.pt"
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set project
+        run: gcloud config set project "${{ vars.GCP_PROJECT_ID }}"
+
+      - name: Configure Artifact Registry Docker auth
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push training image (AMD64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/dockerfiles/Dockerfile.train
+          push: true
+          platforms: linux/amd64
+          tags: ${{ vars.AR_REPO }}/train:${{ github.sha }}
+
+      - name: Create/Update Cloud Run Job
+        env:
+          JOB: train-detector
+          IMAGE: ${{ vars.AR_REPO }}/train:${{ github.sha }}
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          REGION: ${{ vars.GCP_REGION }}
+          SA_JOBS: jobs-runner@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+          DATASET: ${{ github.event.inputs.dataset_gcs_uri }}
+          OUT: ${{ github.event.inputs.out_gcs_uri }}
+          EPOCHS: ${{ github.event.inputs.epochs }}
+          IMGSZ: ${{ github.event.inputs.imgsz }}
+          BASE: ${{ github.event.inputs.base_model }}
+        run: |
+          set -euo pipefail
+          if gcloud run jobs describe "$JOB" --region "$REGION" >/dev/null 2>&1; then
+            CMD="update"
+          else
+            CMD="create"
+          fi
+
+          gcloud run jobs $CMD "$JOB" \
+            --image "$IMAGE" \
+            --region "$REGION" \
+            --task-timeout 24h \
+            --max-retries 1 \
+            --tasks 1 \
+            --cpu 8 --memory 32Gi \
+            --gpu 1 --gpu-type nvidia-l4 --no-gpu-zonal-redundancy \
+            --service-account "$SA_JOBS" \
+            --command python \
+            --args pipeline/train_detector.py,--data_uri,"$DATASET",--out_uri,"$OUT",--epochs,"$EPOCHS",--imgsz,"$IMGSZ",--base,"$BASE"
+
+      - name: Run Job
+        run: gcloud run jobs run train-detector --region "${{ vars.GCP_REGION }}"

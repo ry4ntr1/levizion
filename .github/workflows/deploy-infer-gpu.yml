@@ -25,22 +25,29 @@ jobs:
       - name: Set gcloud project
         run: gcloud config set project "${{ vars.GCP_PROJECT_ID }}"
 
-      - name: Build & Push GPU image
-        run: |
-          IMAGE="${{ vars.AR_REPO }}/infer-gpu:${{ github.sha }}"
-          gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
-          docker build -t "$IMAGE" -f deploy/dockerfiles/Dockerfile.gpu .
-          docker push "$IMAGE"
+      - name: Configure Artifact Registry Docker auth
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push (AMD64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/dockerfiles/Dockerfile.gpu
+          push: true
+          platforms: linux/amd64
+          tags: ${{ vars.AR_REPO }}/infer-gpu:${{ github.sha }}
 
       - name: Deploy Cloud Run (GPU L4)
         run: |
           gcloud run deploy infer-gpu \
-            --project "${{ vars.GCP_PROJECT_ID }}" \
             --image "${{ vars.AR_REPO }}/infer-gpu:${{ github.sha }}" \
             --region "${{ vars.GCP_REGION }}" \
             --platform managed \
             --allow-unauthenticated \
-            --gpu 1 --gpu-type nvidia-l4 \
+            --gpu 1 --gpu-type nvidia-l4 --no-gpu-zonal-redundancy \
             --cpu 4 --memory 16Gi --no-cpu-throttling \
             --concurrency 1 \
             --service-account "run-infer@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
