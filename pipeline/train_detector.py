@@ -73,7 +73,8 @@ def main():
         save=True,            # Save checkpoints
         save_period=10,       # Save every 10 epochs
         batch=-1,             # Auto batch size (uses max GPU memory efficiently)
-        cache=True,           # Cache images in RAM for faster training
+        cache=False,          # Disable RAM caching to prevent shared memory issues
+        workers=2,            # Limit DataLoader workers to prevent shared memory exhaustion
         optimizer='AdamW',    # Better optimizer for YOLO
         lr0=0.01,            # Initial learning rate
         lrf=0.01,            # Final learning rate factor
