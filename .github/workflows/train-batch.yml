@@ -18,6 +18,18 @@ on:
       base_model:
         description: "Ultralytics base (e.g., yolov8m.pt)"
         default: "yolov8m.pt"
+      gpu_type:
+        description: "GPU type: nvidia-l4 or nvidia-tesla-t4"
+        default: "nvidia-l4"
+      machine_type:
+        description: "Machine type (g2-standard-4 for L4, n1-standard-8 for T4)"
+        default: "g2-standard-4"
+      provisioning_model:
+        description: "STANDARD or SPOT"
+        default: "STANDARD"
+      allowed_zones_csv:
+        description: "Comma-separated allowed zones (e.g., us-central1-a,us-central1-b,us-central1-c,us-central1-f)"
+        default: "us-central1-a,us-central1-b,us-central1-c,us-central1-f"
 
 jobs:
   train:
@@ -47,7 +59,7 @@ jobs:
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 
-      - name: Submit Cloud Batch job (Spot L4, 60m cap)
+      - name: Submit Cloud Batch job (configurable GPU/placement)
         run: |
           JOB="train-detector-${{ github.run_id }}"
           DATASET="${{ github.event.inputs.dataset_gcs_uri }}"
@@ -55,7 +67,19 @@ jobs:
           EPOCHS="${{ github.event.inputs.epochs }}"
           IMGSZ="${{ github.event.inputs.imgsz }}"
           BASE="${{ github.event.inputs.base_model }}"
+          GPU_TYPE="${{ github.event.inputs.gpu_type }}"
+          MACHINE_TYPE="${{ github.event.inputs.machine_type }}"
+          PROV="${{ github.event.inputs.provisioning_model }}"
+          ZCSV="${{ github.event.inputs.allowed_zones_csv }}"
           SA_EMAIL="batch-runner@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
+
+          # Build allowedLocations array for locationPolicy
+          ALLOWED_JSON=$(python - <<PY
+import json, os
+zones=os.environ["ZCSV"].split(",")
+print(json.dumps([f"zones/{z.strip()}" for z in zones if z.strip()]))
+PY
+)
 
           cat > job.json <<EOF
           {
@@ -82,11 +106,12 @@ jobs:
             }],
             "allocationPolicy": {
               "serviceAccount": { "email": "${SA_EMAIL}" },
+              "locationPolicy": { "allowedLocations": ${ALLOWED_JSON} },
               "instances": [{
                 "policy": {
-                  "machineType": "g2-standard-4",
-                  "provisioningModel": "STANDARD",
-                  "accelerators": [{ "type": "nvidia-l4", "count": 1 }]
+                  "machineType": "${MACHINE_TYPE}",
+                  "provisioningModel": "${PROV}",
+                  "accelerators": [{ "type": "${GPU_TYPE}", "count": 1 }]
                 },
                 "installGpuDrivers": true
               }]
