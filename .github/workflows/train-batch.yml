@@ -1,3 +1,52 @@
+name: Train Detector (Cloud Batch GPU)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_gcs_uri:
+        description: "gs://.../datasets/<name> (must contain data.yaml)"
+        required: true
+      out_gcs_uri:
+        description: "gs://.../models/<run_name>"
+        required: true
+      epochs:
+        description: "Epochs"
+        default: "100"
+      imgsz:
+        description: "Image size"
+        default: "1024"
+      base_model:
+        description: "Ultralytics base (e.g., yolov8m.pt)"
+        default: "yolov8m.pt"
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set project
+        run: gcloud config set project "${{ vars.GCP_PROJECT_ID }}"
+
+      - name: Build & Push training image
+        run: |
+          IMAGE="${{ vars.AR_REPO }}/train:${{ github.sha }}"
+          gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+          docker build -t "$IMAGE" -f deploy/dockerfiles/Dockerfile.train .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
       - name: Submit Cloud Batch job (Spot L4, 60m cap)
         run: |
           JOB="train-detector-${{ github.run_id }}"
@@ -16,6 +65,7 @@
                 "serviceAccount": { "email": "${SA_EMAIL}" },
                 "computeResource": { "cpuMilli": 8000, "memoryMib": 16384 },
                 "maxRunDuration": "3600s",
+                "maxRetryCount": 2,
                 "runnables": [{
                   "container": {
                     "imageUri": "${IMAGE}",
@@ -50,4 +100,9 @@
             --config job.json
 
           echo "JOB=$JOB" >> $GITHUB_ENV
+
+      - name: Show job link
+        run: |
+          echo "Job: $JOB"
+          echo "Console: https://console.cloud.google.com/batch/jobs/$JOB/details?project=${{ vars.GCP_PROJECT_ID }}&location=${{ vars.GCP_REGION }}"
 
