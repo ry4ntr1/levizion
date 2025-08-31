@@ -4,23 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       dataset_gcs_uri:
-        description: "gs://.../datasets/<name>"
+        description: "gs://.../datasets/<name> (must contain data.yaml)"
         required: true
       out_gcs_uri:
         description: "gs://.../models/<run_name>"
         required: true
       epochs:
         description: "Epochs"
-        required: false
-        default: "30"
+        default: "10"
       imgsz:
         description: "Image size"
-        required: false
-        default: "1280"
+        default: "1024"
       base_model:
-        description: "Ultralytics base (e.g., yolov8s.pt)"
-        required: false
-        default: "yolov8s.pt"
+        description: "Ultralytics base (e.g., yolov8n-obb.pt)"
+        default: "yolov8n-obb.pt"
 
 jobs:
   train:
@@ -50,7 +47,7 @@ jobs:
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 
-      - name: Submit Cloud Batch job (GPU L4)
+      - name: Submit Cloud Batch job (Spot L4, 60m cap)
         run: |
           JOB="train-detector-${{ github.run_id }}"
           DATASET="${{ github.event.inputs.dataset_gcs_uri }}"
@@ -64,7 +61,8 @@ jobs:
             "taskGroups": [{
               "taskCount": 1,
               "taskSpec": {
-                "computeResource": { "cpuMilli": 8000, "memoryMib": 32768 },
+                "serviceAccount": { "email": "batch-runner@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" },
+                "computeResource": { "cpuMilli": 8000, "memoryMib": 16384 },
                 "runnables": [{
                   "container": {
                     "imageUri": "${IMAGE}",
@@ -80,17 +78,16 @@ jobs:
               }
             }],
             "allocationPolicy": {
+              "provisioningModel": "SPOT",
+              "installGpuDrivers": true,
               "instances": [{
                 "policy": {
-                  "machineType": "g2-standard-8",
+                  "machineType": "g2-standard-4",
                   "accelerators": [{ "type": "nvidia-l4", "count": 1 }]
                 }
-              }],
-              "serviceAccount": {
-                "email": "batch-runner@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
-              },
-              "installGpuDrivers": true
+              }]
             },
+            "scheduling": { "maxRunDuration": "3600s" },
             "logsPolicy": { "destination": "CLOUD_LOGGING" }
           }
           EOF
