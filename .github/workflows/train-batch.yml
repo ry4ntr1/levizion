@@ -61,6 +61,7 @@ jobs:
 
       - name: Submit Cloud Batch job (configurable GPU/placement)
         run: |
+          # Inputs
           JOB="train-detector-${{ github.run_id }}"
           DATASET="${{ github.event.inputs.dataset_gcs_uri }}"
           OUT="${{ github.event.inputs.out_gcs_uri }}"
@@ -73,13 +74,8 @@ jobs:
           ZCSV="${{ github.event.inputs.allowed_zones_csv }}"
           SA_EMAIL="batch-runner@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
 
-          # Build allowedLocations array for locationPolicy
-          ALLOWED_JSON=$(python - <<PY
-import json, os
-zones=os.environ["ZCSV"].split(",")
-print(json.dumps([f"zones/{z.strip()}" for z in zones if z.strip()]))
-PY
-)
+          # Build allowedLocations JSON from CSV using jq
+          ALLOWED_JSON=$(jq -cn --arg csv "$ZCSV" '$csv|split(",")|map(gsub("^\\s+|\\s+$";"")|select(length>0)|"zones/\(.)")')
 
           cat > job.json <<EOF
           {
