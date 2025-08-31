@@ -85,7 +85,7 @@ jobs:
               "instances": [{
                 "policy": {
                   "machineType": "g2-standard-4",
-                  "provisioningModel": "SPOT",
+                  "provisioningModel": "STANDARD",
                   "accelerators": [{ "type": "nvidia-l4", "count": 1 }]
                 },
                 "installGpuDrivers": true
