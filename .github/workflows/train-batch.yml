@@ -62,7 +62,6 @@ jobs:
             "taskGroups": [{
               "taskCount": 1,
               "taskSpec": {
-                "serviceAccount": { "email": "${SA_EMAIL}" },
                 "computeResource": { "cpuMilli": 8000, "memoryMib": 16384 },
                 "maxRunDuration": "3600s",
                 "maxRetryCount": 2,
@@ -82,6 +81,7 @@ jobs:
               }
             }],
             "allocationPolicy": {
+              "serviceAccount": { "email": "${SA_EMAIL}" },
               "instances": [{
                 "policy": {
                   "machineType": "g2-standard-4",
@@ -105,4 +105,3 @@ jobs:
         run: |
           echo "Job: $JOB"
           echo "Console: https://console.cloud.google.com/batch/jobs/$JOB/details?project=${{ vars.GCP_PROJECT_ID }}&location=${{ vars.GCP_REGION }}"
-
