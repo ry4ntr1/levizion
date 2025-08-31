@@ -67,7 +67,28 @@ def main():
         epochs=args.epochs,
         device=0,              # use GPU
         project=str(out_dir),  # runs saved under /workspace/outputs
-        name="detector"
+        name="detector",
+        # Optimization settings for best performance/cost ratio
+        patience=10,           # Early stopping if no improvement for 10 epochs
+        save=True,            # Save checkpoints
+        save_period=10,       # Save every 10 epochs
+        batch=-1,             # Auto batch size (uses max GPU memory efficiently)
+        cache=True,           # Cache images in RAM for faster training
+        optimizer='AdamW',    # Better optimizer for YOLO
+        lr0=0.01,            # Initial learning rate
+        lrf=0.01,            # Final learning rate factor
+        warmup_epochs=3,      # Warmup epochs
+        cos_lr=True,         # Cosine learning rate scheduler
+        augment=True,        # Enable augmentation for better generalization
+        hsv_h=0.015,         # Image HSV-Hue augmentation
+        hsv_s=0.7,           # Image HSV-Saturation augmentation  
+        hsv_v=0.4,           # Image HSV-Value augmentation
+        degrees=0.0,         # Image rotation (disabled for basketball court)
+        translate=0.1,       # Image translation
+        scale=0.5,           # Image scale
+        mosaic=1.0,          # Mosaic augmentation
+        mixup=0.2,           # MixUp augmentation
+        copy_paste=0.1       # Copy-paste augmentation for small objects
     )
 
     # Locate best weights and export ONNX
