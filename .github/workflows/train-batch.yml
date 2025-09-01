@@ -104,11 +104,11 @@ jobs:
                       "--epochs","${EPOCHS}",
                       "--imgsz","${IMGSZ}",
                       "--base","${BASE}"
-                    ],
-                    "environment": {
-                      "variables": {
-                        "WANDB_API_KEY": "${{ secrets.WANDB_API_KEY }}"
-                      }
+                    ]
+                  },
+                  "environment": {
+                    "variables": {
+                      "WANDB_API_KEY": "${{ secrets.WANDB_API_KEY }}"
                     }
                   }
                 }]
