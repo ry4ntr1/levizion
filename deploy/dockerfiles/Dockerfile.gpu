@@ -2,15 +2,34 @@ FROM python:3.11-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
-# Basic deps
+# Install system dependencies for OpenCV and other requirements
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential && rm -rf /var/lib/apt/lists/*
+    build-essential \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libgcc-s1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install FastAPI + CUDA-enabled PyTorch wheels
-RUN pip install --no-cache-dir fastapi uvicorn[standard]
-# PyTorch CUDA 12.1 wheels (keep versions reasonably current)
+# Install FastAPI and related packages
+RUN pip install --no-cache-dir fastapi uvicorn[standard] python-multipart
+
+# Install PyTorch CUDA 12.1 wheels (keep versions reasonably current)
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 \
     torch torchvision torchaudio
+
+# Install computer vision and ML packages
+RUN pip install --no-cache-dir \
+    ultralytics \
+    opencv-python-headless \
+    google-cloud-storage \
+    numpy \
+    Pillow
 
 COPY . .
 EXPOSE 8080
