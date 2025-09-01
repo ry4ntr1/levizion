@@ -1,6 +1,7 @@
 import argparse, os, sys, json, pathlib, time, shutil
 from google.cloud import storage
 from ultralytics import YOLO
+import wandb
 
 def parse_gcs(uri):
     assert uri.startswith("gs://"), f"Not a GCS URI: {uri}"
@@ -60,6 +61,31 @@ def main():
         print(f"ERROR: {data_yaml} not found", file=sys.stderr); sys.exit(2)
 
     print(f"Starting training: base={args.base}, imgsz={args.imgsz}, epochs={args.epochs}", flush=True)
+    
+    # Initialize Weights & Biases for real-time monitoring
+    wandb_api_key = os.environ.get('WANDB_API_KEY')
+    wandb_initialized = False
+    if wandb_api_key:
+        try:
+            print("Initializing Weights & Biases monitoring...", flush=True)
+            wandb.login(key=wandb_api_key)
+            wandb.init(
+                project="levizion-basketball-detector",
+                name=f"train_{args.base}_{args.epochs}ep_{args.imgsz}px",
+                config={
+                    "model": args.base,
+                    "epochs": args.epochs, 
+                    "imgsz": args.imgsz,
+                    "dataset": args.data_uri,
+                }
+            )
+            wandb_initialized = True
+            print("Wandb initialized successfully!", flush=True)
+        except Exception as e:
+            print(f"Failed to initialize wandb: {e}. Continuing without monitoring.", flush=True)
+    else:
+        print("WANDB_API_KEY not found, training without wandb monitoring", flush=True)
+    
     model = YOLO(args.base)
     results = model.train(
         data=data_yaml,
@@ -115,6 +141,15 @@ def main():
     # Upload to GCS
     print(f"Uploading artifacts to {args.out_uri} ...", flush=True)
     upload_dir_to_gcs(str(run_dir), args.out_uri)
+    
+    # Finish wandb run if it was initialized
+    if wandb_initialized:
+        try:
+            wandb.finish()
+            print("Wandb run completed successfully!", flush=True)
+        except Exception as e:
+            print(f"Warning: Failed to finish wandb run: {e}", flush=True)
+    
     print("Done.", flush=True)
 
 if __name__ == "__main__":
