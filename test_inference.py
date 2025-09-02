@@ -186,8 +186,24 @@ class BasketballDetector:
         if save_path is None:
             save_path = f"output_{Path(video_path).stem}.mp4"
         
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(save_path, fourcc, fps, (width, height))
+        # Try H.264 codec first (most compatible), fallback to others if needed
+        fourcc_options = [
+            cv2.VideoWriter_fourcc(*'avc1'),  # H.264 (best browser support)
+            cv2.VideoWriter_fourcc(*'H264'),  # Alternative H.264
+            cv2.VideoWriter_fourcc(*'mp4v'),  # MPEG-4 Part 2
+            cv2.VideoWriter_fourcc(*'XVID'),  # Xvid MPEG-4
+        ]
+        
+        out = None
+        for fourcc in fourcc_options:
+            out = cv2.VideoWriter(save_path, fourcc, fps, (width, height))
+            if out.isOpened():
+                print(f"Using codec: {fourcc}")
+                break
+                
+        if not out or not out.isOpened():
+            print("Error: Could not create video writer with any codec")
+            return None
         
         frame_count = 0
         total_predictions = 0

@@ -257,10 +257,25 @@ async def predict_video(
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        # Create output video writer
+        # Create output video writer with web-compatible codec
         output_path = tempfile.mktemp(suffix=".mp4")
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        
+        # Try H.264 codec first (most compatible), fallback to others if needed
+        fourcc_options = [
+            cv2.VideoWriter_fourcc(*'avc1'),  # H.264 (best browser support)
+            cv2.VideoWriter_fourcc(*'H264'),  # Alternative H.264
+            cv2.VideoWriter_fourcc(*'mp4v'),  # MPEG-4 Part 2
+            cv2.VideoWriter_fourcc(*'XVID'),  # Xvid MPEG-4
+        ]
+        
+        out = None
+        for fourcc in fourcc_options:
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            if out.isOpened():
+                break
+                
+        if not out or not out.isOpened():
+            raise HTTPException(status_code=500, detail="Could not create video writer")
         
         frame_count = 0
         total_predictions = 0

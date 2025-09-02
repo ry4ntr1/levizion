@@ -145,9 +145,12 @@
         
         .result-video {
             max-width: 100%;
+            width: 100%;
+            height: auto;
             border-radius: 10px;
             box-shadow: 0 10px 20px rgba(0,0,0,0.1);
             margin-bottom: 20px;
+            background-color: #000;
         }
         
         .predictions-info {
@@ -343,9 +346,11 @@
                     
                     if (isVideo) {
                         resultHtml = `
-                            <video class="result-video" controls>
+                            <video class="result-video" controls preload="metadata" playsinline>
+                                <source src="${url}" type="video/mp4; codecs=avc1.42E01E">
                                 <source src="${url}" type="video/mp4">
                                 Your browser does not support the video tag.
+                                <p>If the video doesn't play, try downloading it: <a href="${url}" download="basketball_detection.mp4">Download Video</a></p>
                             </video>
                         `;
                         
