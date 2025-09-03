@@ -317,7 +317,11 @@
             
             try {
                 const formData = new FormData();
-                formData.append('file', selectedFile);
+                // Ensure file has correct MIME type for server validation
+                const fileWithType = new File([selectedFile], selectedFile.name, {
+                    type: selectedFile.type || (isVideo ? 'video/mp4' : 'image/jpeg')
+                });
+                formData.append('file', fileWithType);
                 formData.append('confidence', confidence);
                 if (!isVideo) {
                     formData.append('return_image', outputType === 'image');
