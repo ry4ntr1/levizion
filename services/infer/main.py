@@ -307,24 +307,25 @@ async def predict_video(
         # Clean up input file
         os.unlink(input_path)
         
-        # Read output video and stream it
-        def generate():
+        # Read output video into memory and return as response
+        try:
             with open(output_path, "rb") as f:
-                while True:
-                    chunk = f.read(8192)
-                    if not chunk:
-                        break
-                    yield chunk
-            # Clean up output file after streaming
-            os.unlink(output_path)
+                video_content = f.read()
+        finally:
+            # Clean up output file
+            if os.path.exists(output_path):
+                os.unlink(output_path)
         
         headers = {
             "X-Frames-Processed": str(frame_count),
-            "X-Total-Predictions": str(total_predictions)
+            "X-Total-Predictions": str(total_predictions),
+            "Content-Length": str(len(video_content)),
+            "Accept-Ranges": "bytes"
         }
         
-        return StreamingResponse(
-            generate(),
+        from fastapi.responses import Response
+        return Response(
+            content=video_content,
             media_type="video/mp4",
             headers=headers
         )
