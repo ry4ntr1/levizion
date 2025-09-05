@@ -234,7 +234,7 @@ async def predict_image(
 async def predict_video(
     file: UploadFile = File(...),
     confidence: Optional[float] = 0.5,
-    max_frames: Optional[int] = 300  # Limit processing for demo
+    max_frames: Optional[int] = 100  # Reduced for production performance
 ):
     """Predict objects in an uploaded video and return annotated video."""
     if not file.content_type.startswith('video/'):
@@ -280,41 +280,111 @@ async def predict_video(
         frame_count = 0
         total_predictions = 0
         
+        print(f"Starting video processing: max_frames={max_frames}, fps={fps}, size={width}x{height}")
+        print(f"GPU available: {torch.cuda.is_available()}")
+        
+        # Process frames in batches for better GPU utilization
+        batch_size = 4 if torch.cuda.is_available() else 1
+        frame_batch = []
+        
         while True:
             ret, frame = cap.read()
             if not ret or frame_count >= max_frames:
+                # Process remaining frames in batch
+                if frame_batch:
+                    results_batch = current_model(frame_batch, conf=confidence)
+                    for i, frame_data in enumerate(frame_batch):
+                        result = results_batch[i] if i < len(results_batch) else []
+                        
+                        # Count predictions
+                        for res in [result] if not isinstance(result, list) else result:
+                            if hasattr(res, 'boxes') and res.boxes is not None:
+                                total_predictions += len(res.boxes)
+                        
+                        # Draw predictions and write frame
+                        annotated_frame = draw_predictions(frame_data, [result] if not isinstance(result, list) else result, confidence)
+                        out.write(annotated_frame)
+                        frame_count += 1
+                
+                print(f"Video processing complete: processed {frame_count} frames, predictions={total_predictions}")
                 break
             
-            # Run prediction on frame
-            results = current_model(frame, conf=confidence)
+            frame_batch.append(frame)
             
-            # Count predictions
-            for result in results:
-                if result.boxes is not None:
-                    total_predictions += len(result.boxes)
-            
-            # Draw predictions
-            annotated_frame = draw_predictions(frame, results, confidence)
-            
-            # Write frame to output video
-            out.write(annotated_frame)
-            frame_count += 1
+            # Process batch when full or every few frames
+            if len(frame_batch) >= batch_size:
+                try:
+                    # Run prediction on batch
+                    results_batch = current_model(frame_batch, conf=confidence)
+                    
+                    for i, frame_data in enumerate(frame_batch):
+                        result = results_batch[i] if i < len(results_batch) else []
+                        
+                        # Count predictions
+                        for res in [result] if not isinstance(result, list) else result:
+                            if hasattr(res, 'boxes') and res.boxes is not None:
+                                total_predictions += len(res.boxes)
+                        
+                        # Draw predictions
+                        annotated_frame = draw_predictions(frame_data, [result] if not isinstance(result, list) else result, confidence)
+                        
+                        # Write frame to output video
+                        out.write(annotated_frame)
+                        frame_count += 1
+                        
+                        # Progress logging every 10 frames for better production monitoring
+                        if frame_count % 10 == 0:
+                            print(f"Progress: {frame_count}/{max_frames} frames processed, {frame_count/max_frames*100:.1f}% complete")
+                    
+                    frame_batch = []  # Clear batch
+                except Exception as e:
+                    print(f"Batch processing failed, falling back to single frame: {e}")
+                    # Fallback to single frame processing
+                    for frame_data in frame_batch:
+                        results = current_model(frame_data, conf=confidence)
+                        
+                        # Count predictions
+                        for result in results:
+                            if result.boxes is not None:
+                                total_predictions += len(result.boxes)
+                        
+                        # Draw predictions
+                        annotated_frame = draw_predictions(frame_data, results, confidence)
+                        
+                        # Write frame to output video
+                        out.write(annotated_frame)
+                        frame_count += 1
+                        
+                        if frame_count % 10 == 0:
+                            print(f"Progress: {frame_count}/{max_frames} frames processed, {frame_count/max_frames*100:.1f}% complete")
+                    
+                    frame_batch = []
         
         # Release resources
         cap.release()
         out.release()
         
+        print("Released video resources")
+        
         # Clean up input file
         os.unlink(input_path)
+        print("Cleaned up input file")
         
         # Read output video into memory and return as response
+        print(f"Reading output video from: {output_path}")
+        if not os.path.exists(output_path):
+            print(f"ERROR: Output video file does not exist at {output_path}")
+            raise HTTPException(status_code=500, detail="Output video file was not created")
+            
         try:
             with open(output_path, "rb") as f:
                 video_content = f.read()
+            print(f"Read video content: {len(video_content)} bytes")
         finally:
             # Clean up output file
             if os.path.exists(output_path):
                 os.unlink(output_path)
+                print("Cleaned up output file")
         
         headers = {
             "X-Frames-Processed": str(frame_count),
@@ -322,6 +392,8 @@ async def predict_video(
             "Content-Length": str(len(video_content)),
             "Accept-Ranges": "bytes"
         }
+        
+        print(f"Sending response with headers: {headers}")
         
         from fastapi.responses import Response
         return Response(
