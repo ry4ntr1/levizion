@@ -212,6 +212,76 @@
             border-radius: 5px;
             margin: 20px 0;
         }
+        
+        .debug-panel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            width: 400px;
+            max-height: 80vh;
+            background: rgba(0, 0, 0, 0.9);
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-y: auto;
+            z-index: 10000;
+            border: 2px solid #333;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            display: none;
+        }
+        
+        .debug-panel.active {
+            display: block;
+        }
+        
+        .debug-entry {
+            margin-bottom: 8px;
+            padding: 4px;
+            border-left: 3px solid #00ff00;
+            padding-left: 8px;
+        }
+        
+        .debug-entry.error {
+            border-left-color: #ff4444;
+            color: #ff8888;
+        }
+        
+        .debug-entry.warning {
+            border-left-color: #ffaa00;
+            color: #ffdd88;
+        }
+        
+        .debug-entry.info {
+            border-left-color: #4488ff;
+            color: #88bbff;
+        }
+        
+        .debug-toggle {
+            position: fixed;
+            top: 10px;
+            right: 420px;
+            background: #333;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 10001;
+            font-size: 12px;
+        }
+        
+        .debug-clear {
+            background: #666;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-bottom: 10px;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
@@ -254,9 +324,104 @@
         
         <div id="results" class="results"></div>
     </div>
+    
+    <!-- Debug Panel -->
+    <button class="debug-toggle" onclick="toggleDebugPanel()">🐛 Debug</button>
+    <div id="debugPanel" class="debug-panel">
+        <button class="debug-clear" onclick="clearDebugLog()">Clear Log</button>
+        <div id="debugLog"></div>
+    </div>
 
     <script>
         let selectedFile = null;
+        let debugMode = false;
+        let debugEntryCount = 0;
+        
+        // Debug logging system
+        function debugLog(message, type = 'info', data = null) {
+            debugEntryCount++;
+            const timestamp = new Date().toLocaleTimeString();
+            const debugPanel = document.getElementById('debugLog');
+            
+            let logMessage = `[${timestamp}] ${message}`;
+            if (data) {
+                logMessage += `\n${JSON.stringify(data, null, 2)}`;
+            }
+            
+            // Always log to console
+            if (type === 'error') {
+                console.error(logMessage, data || '');
+            } else if (type === 'warning') {
+                console.warn(logMessage, data || '');
+            } else {
+                console.log(logMessage, data || '');
+            }
+            
+            // Add to visual debug panel
+            if (debugPanel) {
+                const entry = document.createElement('div');
+                entry.className = `debug-entry ${type}`;
+                entry.innerHTML = `<strong>#${debugEntryCount}</strong> ${logMessage.replace(/\n/g, '<br>')}`;
+                debugPanel.appendChild(entry);
+                
+                // Auto-scroll to bottom
+                debugPanel.scrollTop = debugPanel.scrollHeight;
+                
+                // Limit entries (keep last 50)
+                while (debugPanel.children.length > 50) {
+                    debugPanel.removeChild(debugPanel.firstChild);
+                }
+            }
+            
+            // Also show critical errors as alerts
+            if (type === 'error') {
+                showError(`DEBUG: ${message}`);
+            }
+        }
+        
+        function toggleDebugPanel() {
+            const panel = document.getElementById('debugPanel');
+            debugMode = !debugMode;
+            panel.classList.toggle('active', debugMode);
+            
+            if (debugMode && !panel.innerHTML.includes('Debug session started')) {
+                debugLog('Debug session started', 'info');
+                debugLog('Browser info', 'info', {
+                    userAgent: navigator.userAgent,
+                    codecs: getVideoCodecSupport(),
+                    location: window.location.href
+                });
+            }
+        }
+        
+        function clearDebugLog() {
+            document.getElementById('debugLog').innerHTML = '';
+            debugEntryCount = 0;
+            debugLog('Debug log cleared', 'info');
+        }
+        
+        function getVideoCodecSupport() {
+            const video = document.createElement('video');
+            const codecs = {
+                'mp4_avc1': video.canPlayType('video/mp4; codecs="avc1.42E01E"'),
+                'mp4_h264': video.canPlayType('video/mp4; codecs="avc1.64001E"'),
+                'mp4_basic': video.canPlayType('video/mp4'),
+                'webm': video.canPlayType('video/webm')
+            };
+            return codecs;
+        }
+        
+        // Auto-enable debug for localhost development
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                setTimeout(() => {
+                    if (!debugMode) {
+                        toggleDebugPanel();
+                        debugLog('Auto-enabled debugging for localhost development', 'info');
+                    }
+                }, 500);
+            }
+        });
         
         // File input handling
         document.getElementById('fileInput').addEventListener('change', function(e) {
@@ -295,17 +460,34 @@
             }
         });
         
-        // Prediction function
+        // Prediction function with comprehensive debugging
         async function predict() {
+            debugLog('=== PREDICT FUNCTION STARTED ===', 'info');
+            
             if (!selectedFile) {
+                debugLog('No file selected', 'error');
                 showError('Please select a file first.');
                 return;
             }
+            
+            debugLog('File selected', 'info', {
+                name: selectedFile.name,
+                size: selectedFile.size,
+                type: selectedFile.type,
+                lastModified: selectedFile.lastModified
+            });
             
             const resultsDiv = document.getElementById('results');
             const confidence = document.getElementById('confidence').value;
             const outputType = document.getElementById('outputType').value;
             const isVideo = selectedFile.type.startsWith('video/');
+            
+            debugLog('Request parameters', 'info', {
+                confidence: confidence,
+                outputType: outputType,
+                isVideo: isVideo,
+                endpoint: isVideo ? '/predict/video' : '/predict/image'
+            });
             
             // Show loading
             resultsDiv.innerHTML = `
@@ -316,46 +498,79 @@
             `;
             
             try {
+                debugLog('Creating FormData', 'info');
                 const formData = new FormData();
+                
                 // Ensure file has correct MIME type for server validation
                 const fileWithType = new File([selectedFile], selectedFile.name, {
                     type: selectedFile.type || (isVideo ? 'video/mp4' : 'image/jpeg')
                 });
+                
+                debugLog('File with type created', 'info', {
+                    originalType: selectedFile.type,
+                    newType: fileWithType.type,
+                    name: fileWithType.name,
+                    size: fileWithType.size
+                });
+                
                 formData.append('file', fileWithType);
                 formData.append('confidence', confidence);
                 if (!isVideo) {
                     formData.append('return_image', outputType === 'image');
                 }
                 
+                debugLog('FormData entries', 'info', Array.from(formData.entries()).map(([key, value]) => 
+                    key === 'file' ? [key, `File: ${value.name} (${value.size} bytes)`] : [key, value]
+                ));
+                
                 const endpoint = isVideo ? '/predict/video' : '/predict/image';
+                debugLog(`Making fetch request to ${endpoint}`, 'info');
+                
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     body: formData
                 });
                 
+                debugLog('Response received', 'info', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    url: response.url
+                });
+                
                 if (!response.ok) {
-                    throw new Error(`Server error: ${response.status}`);
+                    const errorText = await response.text().catch(() => 'No response text');
+                    debugLog('Server error response', 'error', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        errorText: errorText
+                    });
+                    throw new Error(`Server error: ${response.status} - ${errorText}`);
                 }
                 
                 if (isVideo || outputType === 'image') {
-                    // Handle media response
-                    console.log('Processing media response...');
-                    console.log('Response status:', response.status);
-                    console.log('Response headers:', Object.fromEntries(response.headers));
+                    debugLog('Processing media response (blob)', 'info');
                     
                     const blob = await response.blob();
-                    console.log('Blob created:', {
+                    
+                    debugLog('Blob created successfully', 'info', {
                         size: blob.size,
                         type: blob.type,
                         lastModified: blob.lastModified
                     });
                     
                     if (blob.size === 0) {
+                        debugLog('Empty blob received from server', 'error');
                         throw new Error('Received empty video blob from server');
                     }
                     
                     const url = URL.createObjectURL(blob);
-                    console.log('Blob URL created:', url);
+                    debugLog('Blob URL created', 'info', {
+                        url: url,
+                        blobSize: blob.size,
+                        blobType: blob.type
+                    });
                     
                     const predictions = response.headers.get('X-Predictions');
                     const framesProcessed = response.headers.get('X-Frames-Processed');
@@ -364,6 +579,11 @@
                     let resultHtml = '';
                     
                     if (isVideo) {
+                        debugLog('Creating video element HTML', 'info', {
+                            blobURL: url,
+                            videoCodecSupport: getVideoCodecSupport()
+                        });
+                        
                         resultHtml = `
                             <video class="result-video" controls preload="metadata" playsinline>
                                 <source src="${url}" type="video/mp4; codecs=avc1.42E01E">
@@ -392,43 +612,77 @@
                         }
                     }
                     
+                    debugLog('Setting innerHTML with result', 'info', {
+                        htmlLength: resultHtml.length,
+                        containsVideo: isVideo
+                    });
                     resultsDiv.innerHTML = resultHtml;
                     
-                    // Add debugging for video element if it's a video
+                    // Add comprehensive debugging for video element
                     if (isVideo) {
                         const videoElement = resultsDiv.querySelector('video');
                         if (videoElement) {
-                            console.log('Video element created, adding event listeners...');
-                            
-                            videoElement.addEventListener('loadstart', () => {
-                                console.log('Video: Load started');
+                            debugLog('Video element found in DOM, adding event listeners', 'info', {
+                                videoElement: videoElement.tagName,
+                                sources: Array.from(videoElement.querySelectorAll('source')).map(s => ({
+                                    src: s.src,
+                                    type: s.type
+                                }))
                             });
                             
-                            videoElement.addEventListener('loadedmetadata', () => {
-                                console.log('Video metadata loaded:', {
-                                    duration: videoElement.duration,
-                                    videoWidth: videoElement.videoWidth,
-                                    videoHeight: videoElement.videoHeight,
-                                    readyState: videoElement.readyState
+                            // Comprehensive video event tracking
+                            const videoEvents = [
+                                'loadstart', 'durationchange', 'loadedmetadata', 'loadeddata',
+                                'progress', 'canplay', 'canplaythrough', 'play', 'pause',
+                                'seeking', 'seeked', 'ended', 'error', 'stalled', 'suspend',
+                                'abort', 'emptied', 'waiting'
+                            ];
+                            
+                            videoEvents.forEach(eventName => {
+                                videoElement.addEventListener(eventName, (e) => {
+                                    const eventData = {
+                                        event: eventName,
+                                        currentTime: videoElement.currentTime,
+                                        duration: videoElement.duration,
+                                        readyState: videoElement.readyState,
+                                        networkState: videoElement.networkState,
+                                        buffered: videoElement.buffered.length ? 
+                                                 `0-${videoElement.buffered.end(0)}` : 'none'
+                                    };
+                                    
+                                    if (eventName === 'error') {
+                                        eventData.error = videoElement.error ? {
+                                            code: videoElement.error.code,
+                                            message: videoElement.error.message
+                                        } : 'No error details';
+                                        debugLog(`Video event: ${eventName}`, 'error', eventData);
+                                    } else if (['stalled', 'suspend', 'waiting', 'abort'].includes(eventName)) {
+                                        debugLog(`Video event: ${eventName}`, 'warning', eventData);
+                                    } else {
+                                        debugLog(`Video event: ${eventName}`, 'info', eventData);
+                                    }
                                 });
                             });
                             
-                            videoElement.addEventListener('canplay', () => {
-                                console.log('Video: Can play');
-                            });
+                            // Test direct blob URL access
+                            setTimeout(async () => {
+                                try {
+                                    debugLog('Testing direct blob URL access', 'info');
+                                    const testResponse = await fetch(url);
+                                    debugLog('Direct blob URL test result', 'info', {
+                                        status: testResponse.status,
+                                        contentLength: testResponse.headers.get('Content-Length'),
+                                        contentType: testResponse.headers.get('Content-Type')
+                                    });
+                                } catch (err) {
+                                    debugLog('Direct blob URL test failed', 'error', {
+                                        error: err.message
+                                    });
+                                }
+                            }, 1000);
                             
-                            videoElement.addEventListener('error', (e) => {
-                                console.error('Video error:', e);
-                                console.error('Video error details:', videoElement.error);
-                            });
-                            
-                            videoElement.addEventListener('stalled', () => {
-                                console.warn('Video: Stalled');
-                            });
-                            
-                            videoElement.addEventListener('suspend', () => {
-                                console.warn('Video: Suspended');
-                            });
+                        } else {
+                            debugLog('Video element NOT found in DOM', 'error');
                         }
                     }
                 } else {
@@ -438,8 +692,15 @@
                 }
                 
             } catch (error) {
+                debugLog('Prediction failed with error', 'error', {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name
+                });
                 showError(`Prediction failed: ${error.message}`);
                 resultsDiv.innerHTML = '';
+            } finally {
+                debugLog('=== PREDICT FUNCTION ENDED ===', 'info');
             }
         }
         

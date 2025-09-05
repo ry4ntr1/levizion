@@ -234,11 +234,19 @@ async def predict_image(
 async def predict_video(
     file: UploadFile = File(...),
     confidence: Optional[float] = 0.5,
-    max_frames: Optional[int] = 100  # Reduced for production performance
+    max_frames: Optional[int] = None  # Will be set based on environment
 ):
     """Predict objects in an uploaded video and return annotated video."""
     if not file.content_type.startswith('video/'):
         raise HTTPException(status_code=400, detail="File must be a video")
+    
+    # Set frame limits based on environment (localhost vs production)
+    is_production = os.environ.get("K_SERVICE") is not None  # Cloud Run sets this
+    if max_frames is None:
+        max_frames = 100 if is_production else 300  # Less frames for Cloud Run, more for localhost
+        
+    print(f"Environment: {'Production (Cloud Run)' if is_production else 'Development (Localhost)'}")
+    print(f"Frame limit: {max_frames}")
     
     # Load model if not already loaded
     current_model = download_model_from_gcs()
