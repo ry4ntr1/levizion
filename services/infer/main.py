@@ -254,8 +254,24 @@ async def predict_video(
         # Open input video
         cap = cv2.VideoCapture(input_path)
         fps = int(cap.get(cv2.CAP_PROP_FPS))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        original_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        original_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        # Optimize resolution for performance (max 720p for Cloud Run)
+        max_dimension = 720
+        if original_width > max_dimension or original_height > max_dimension:
+            if original_width > original_height:
+                width = max_dimension
+                height = int((max_dimension * original_height) / original_width)
+            else:
+                height = max_dimension
+                width = int((max_dimension * original_width) / original_height)
+            # Ensure even dimensions for video codecs
+            width = width if width % 2 == 0 else width - 1
+            height = height if height % 2 == 0 else height - 1
+            print(f"Resizing video from {original_width}x{original_height} to {width}x{height} for performance")
+        else:
+            width, height = original_width, original_height
         
         # Create output video writer with web-compatible codec
         output_path = tempfile.mktemp(suffix=".mp4")
@@ -308,6 +324,10 @@ async def predict_video(
                 
                 print(f"Video processing complete: processed {frame_count} frames, predictions={total_predictions}")
                 break
+            
+            # Resize frame if needed for performance
+            if frame.shape[1] != width or frame.shape[0] != height:
+                frame = cv2.resize(frame, (width, height))
             
             frame_batch.append(frame)
             
