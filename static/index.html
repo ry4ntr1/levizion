@@ -339,8 +339,23 @@
                 
                 if (isVideo || outputType === 'image') {
                     // Handle media response
+                    console.log('Processing media response...');
+                    console.log('Response status:', response.status);
+                    console.log('Response headers:', Object.fromEntries(response.headers));
+                    
                     const blob = await response.blob();
+                    console.log('Blob created:', {
+                        size: blob.size,
+                        type: blob.type,
+                        lastModified: blob.lastModified
+                    });
+                    
+                    if (blob.size === 0) {
+                        throw new Error('Received empty video blob from server');
+                    }
+                    
                     const url = URL.createObjectURL(blob);
+                    console.log('Blob URL created:', url);
                     
                     const predictions = response.headers.get('X-Predictions');
                     const framesProcessed = response.headers.get('X-Frames-Processed');
@@ -378,6 +393,44 @@
                     }
                     
                     resultsDiv.innerHTML = resultHtml;
+                    
+                    // Add debugging for video element if it's a video
+                    if (isVideo) {
+                        const videoElement = resultsDiv.querySelector('video');
+                        if (videoElement) {
+                            console.log('Video element created, adding event listeners...');
+                            
+                            videoElement.addEventListener('loadstart', () => {
+                                console.log('Video: Load started');
+                            });
+                            
+                            videoElement.addEventListener('loadedmetadata', () => {
+                                console.log('Video metadata loaded:', {
+                                    duration: videoElement.duration,
+                                    videoWidth: videoElement.videoWidth,
+                                    videoHeight: videoElement.videoHeight,
+                                    readyState: videoElement.readyState
+                                });
+                            });
+                            
+                            videoElement.addEventListener('canplay', () => {
+                                console.log('Video: Can play');
+                            });
+                            
+                            videoElement.addEventListener('error', (e) => {
+                                console.error('Video error:', e);
+                                console.error('Video error details:', videoElement.error);
+                            });
+                            
+                            videoElement.addEventListener('stalled', () => {
+                                console.warn('Video: Stalled');
+                            });
+                            
+                            videoElement.addEventListener('suspend', () => {
+                                console.warn('Video: Suspended');
+                            });
+                        }
+                    }
                 } else {
                     // Handle JSON response
                     const data = await response.json();
