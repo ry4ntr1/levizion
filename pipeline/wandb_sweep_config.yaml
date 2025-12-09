@@ -1,0 +1,110 @@
+# WandB Sweep Configuration for Basketball Object Detection Optimization
+# Systematic hyperparameter search for optimal model performance
+
+program: train_detector.py
+method: bayes
+metric:
+  goal: maximize
+  name: metrics/mAP50-95
+
+parameters:
+  # Model architecture variations
+  base:
+    values: ["yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt"]
+  
+  # Image resolution optimization
+  imgsz:
+    values: [480, 640, 832, 1024, 1280]
+  
+  # Training duration
+  epochs:
+    min: 30
+    max: 100
+  
+  # Optimizer selection
+  optimizer:
+    values: ["SGD", "Adam", "AdamW", "RMSProp"]
+  
+  # Learning rate schedule
+  lr0:
+    min: 0.0001
+    max: 0.01
+    distribution: log_uniform_values
+  
+  lrf:
+    min: 0.01
+    max: 0.2
+    distribution: uniform
+  
+  # Regularization parameters
+  weight_decay:
+    min: 0.0001
+    max: 0.001
+    distribution: log_uniform_values
+  
+  dropout:
+    min: 0.0
+    max: 0.5
+    distribution: uniform
+  
+  # Data augmentation intensity
+  hsv_h:
+    min: 0.0
+    max: 0.02
+    distribution: uniform
+  
+  hsv_s:
+    min: 0.3
+    max: 1.0
+    distribution: uniform
+  
+  hsv_v:
+    min: 0.2
+    max: 0.6
+    distribution: uniform
+  
+  degrees:
+    min: 0.0
+    max: 10.0
+    distribution: uniform
+  
+  translate:
+    min: 0.05
+    max: 0.2
+    distribution: uniform
+  
+  scale:
+    min: 0.3
+    max: 0.8
+    distribution: uniform
+  
+  # Advanced augmentations
+  mosaic:
+    min: 0.5
+    max: 1.0
+    distribution: uniform
+  
+  mixup:
+    min: 0.0
+    max: 0.3
+    distribution: uniform
+  
+  copy_paste:
+    min: 0.0
+    max: 0.2
+    distribution: uniform
+
+# Early termination to save compute
+early_terminate:
+  type: hyperband
+  min_iter: 20
+  eta: 3
+
+# Resource constraints
+command:
+  - ${program}
+  - --data_uri=${data_uri}
+  - --out_uri=${out_uri}
+  - --base=${base}
+  - --imgsz=${imgsz}
+  - --epochs=${epochs}
